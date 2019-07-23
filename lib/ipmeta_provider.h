@@ -49,8 +49,8 @@
  */
 #define IPMETA_PROVIDER_GENERATE_PROTOS(provname)                              \
   ipmeta_provider_t *ipmeta_provider_##provname##_alloc();                     \
-  int ipmeta_provider_##provname##_init(ipmeta_provider_t *ds, int argc,       \
-                                        char **argv);                          \
+  int ipmeta_provider_##provname##_init(ipmeta_provider_t *ds,                 \
+                                        const char *optstr, ...);              \
   void ipmeta_provider_##provname##_free(ipmeta_provider_t *ds);               \
   int ipmeta_provider_##provname##_lookup(ipmeta_provider_t *provider,         \
                                           uint32_t addr, uint8_t mask,         \

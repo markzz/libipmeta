@@ -256,87 +256,45 @@ typedef enum na_to_polygon_cols {
 /** The number of header rows in the netacq_edge CSV files */
 #define HEADER_ROW_CNT 1
 
-/** Print usage information to stderr */
-static void usage(ipmeta_provider_t *provider)
-{
-  fprintf(stderr,
-          "provider usage: %s -l locations -b blocks\n"
-          "       -b            blocks file (must be used with -l)\n"
-          "       -c            country decode file\n",
-          provider->name);
-
-  fprintf(stderr,
-          "       -l            locations file (must be used with -b)\n"
-          "       -r            region decode file\n"
-          "       -p            netacq2polygon mapping file\n"
-          "       -t            polygon table file\n"
-          "                       (can be used up to %d times to specify "
-          "multiple tables)\n",
-          POLYGON_FILE_CNT_MAX);
-}
-
-/** Parse the arguments given to the provider
- * @todo add option to choose datastructure
- */
-static int parse_args(ipmeta_provider_t *provider, int argc, char **argv)
+static int process_opts(ipmeta_provider_t *provider, const char *optstr, va_list argp)
 {
   ipmeta_provider_netacq_edge_state_t *state = STATE(provider);
-  int opt;
 
-  /* no args */
-  if (argc == 0) {
-    usage(provider);
+  const char *ptr = NULL;
+
+  if (optstr == NULL || strcmp(optstr, "") == 0) {
     return -1;
   }
 
-  /* NB: remember to reset optind to 1 before using getopt! */
-  optind = 1;
-
-  /* remember the argv strings DO NOT belong to us */
-
-  while ((opt = getopt(argc, argv, "b:c:D:l:r:p:t:?")) >= 0) {
-    switch (opt) {
-    case 'b':
-      state->blocks_file = strdup(optarg);
-      break;
-
-    case 'c':
-      state->country_file = strdup(optarg);
-      break;
-
-    case 'D':
-      fprintf(
-        stderr,
-        "WARNING: -D option is no longer supported by individual providers.\n");
-      break;
-
-    case 'l':
-      state->locations_file = strdup(optarg);
-      break;
-
-    case 'r':
-      state->region_file = strdup(optarg);
-      break;
-
-    case 'p':
-      state->na_to_polygon_file = strdup(optarg);
-      break;
-
-    case 't':
-      state->polygon_files[state->polygon_files_cnt++] = strdup(optarg);
-      break;
-
-    case '?':
-    case ':':
-    default:
-      usage(provider);
-      return -1;
+  for (ptr = optstr; *ptr != '\0'; ptr++) {
+    switch (*ptr) {
+      case 'b':
+        state->blocks_file = strdup(va_arg(argp, char*));
+        break;
+      case 'c':
+        state->country_file = strdup(va_arg(argp, char*));
+        break;
+      case 'l':
+        state->locations_file = strdup(va_arg(argp, char*));
+        break;
+      case 'r':
+        state->region_file = strdup(va_arg(argp, char*));
+        break;
+      case 'p':
+        state->na_to_polygon_file = strdup(va_arg(argp, char*));
+        break;
+      case 't':
+        state->polygon_files[state->polygon_files_cnt++] = strdup(va_arg(argp, char*));
+        break;
+      default:
+        fprintf(stderr, "ERROR: unknown option %c.\n", *ptr);
+        return -1;
     }
   }
 
-  if (state->locations_file == NULL || state->blocks_file == NULL) {
-    fprintf(stderr, "ERROR: %s requires both '-b' and '-l'\n", provider->name);
-    usage(provider);
+  if (state->locations_file != NULL || state->blocks_file != NULL) {
+    fprintf(stderr, "ERROR: %s requires a locations and blocks file.\n",
+            provider->name);
     return -1;
   }
 
@@ -1647,8 +1605,7 @@ ipmeta_provider_t *ipmeta_provider_netacq_edge_alloc()
   return &ipmeta_provider_netacq_edge;
 }
 
-int ipmeta_provider_netacq_edge_init(ipmeta_provider_t *provider, int argc,
-                                     char **argv)
+int ipmeta_provider_netacq_edge_init(ipmeta_provider_t *provider, const char *optstr, ...)
 {
   ipmeta_provider_netacq_edge_state_t *state;
   io_t *file = NULL;
@@ -1663,10 +1620,14 @@ int ipmeta_provider_netacq_edge_init(ipmeta_provider_t *provider, int argc,
   }
   ipmeta_provider_register_state(provider, state);
 
-  /* parse the command line args */
-  if (parse_args(provider, argc, argv) != 0) {
+  va_list argp;
+  va_start(argp, optstr);
+
+  if (process_opts(provider, optstr, argp) != 0) {
     return -1;
   }
+
+  va_end(argp);
 
   assert(state->locations_file != NULL && state->blocks_file != NULL);
 

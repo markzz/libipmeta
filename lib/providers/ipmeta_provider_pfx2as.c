@@ -70,56 +70,24 @@ typedef struct ipmeta_provider_pfx2as_state {
 
 #define COL_CNT 3
 
-/** Print usage information to stderr */
-static void usage(ipmeta_provider_t *provider)
-{
-  fprintf(stderr, "provider usage: %s -f pfx2as-file\n", provider->name);
-
-  fprintf(stderr, "       -f            pfx2as file to use for lookups\n");
-}
-
-/** Parse the arguments given to the provider
- * @todo add option to choose datastructure
- */
-static int parse_args(ipmeta_provider_t *provider, int argc, char **argv)
+static int process_opts(ipmeta_provider_t *provider, const char *optstr, va_list argp)
 {
   ipmeta_provider_pfx2as_state_t *state = STATE(provider);
-  int opt;
+  const char *ptr = NULL;
 
-  /* no args */
-  if (argc == 0) {
-    usage(provider);
+  if (optstr == NULL || strcmp(optstr, "") == 0) {
     return -1;
   }
 
-  /* NB: remember to reset optind to 1 before using getopt! */
-  optind = 1;
-
-  /* remember the argv strings DO NOT belong to us */
-
-  while ((opt = getopt(argc, argv, ":D:f:?")) >= 0) {
-    switch (opt) {
-    case 'D':
-      fprintf(
-        stderr,
-        "WARNING: -D option is no longer supported by individual providers.\n");
-      break;
-    case 'f':
-      state->pfx2as_file = strdup(optarg);
-      break;
-
-    case '?':
-    case ':':
-    default:
-      usage(provider);
-      return -1;
+  for (ptr = optstr; *ptr != '\0'; ptr++) {
+    switch (*ptr) {
+      case 'f':
+        state->pfx2as_file = strdup(va_arg(argp, char*));
+        break;
+      default:
+        fprintf(stderr, "ERROR: unknown option %c.\n", *ptr);
+        return -1;
     }
-  }
-
-  if (state->pfx2as_file == NULL) {
-    fprintf(stderr, "ERROR: %s requires '-f'\n", provider->name);
-    usage(provider);
-    return -1;
   }
 
   return 0;
@@ -304,8 +272,8 @@ ipmeta_provider_t *ipmeta_provider_pfx2as_alloc()
   return &ipmeta_provider_pfx2as;
 }
 
-int ipmeta_provider_pfx2as_init(ipmeta_provider_t *provider, int argc,
-                                char **argv)
+int ipmeta_provider_pfx2as_init(ipmeta_provider_t *provider, const char *optstr,
+                                ...)
 {
   ipmeta_provider_pfx2as_state_t *state;
   io_t *file = NULL;
@@ -317,10 +285,14 @@ int ipmeta_provider_pfx2as_init(ipmeta_provider_t *provider, int argc,
   }
   ipmeta_provider_register_state(provider, state);
 
-  /* parse the command line args */
-  if (parse_args(provider, argc, argv) != 0) {
+  va_list argp;
+  va_start(argp, optstr);
+
+  if (process_opts(provider, optstr, argp) != 0) {
     return -1;
   }
+
+  va_end(argp);
 
   assert(state->pfx2as_file != NULL);
 
@@ -348,7 +320,6 @@ err:
   if (file != NULL) {
     wandio_destroy(file);
   }
-  usage(provider);
   return -1;
 }
 

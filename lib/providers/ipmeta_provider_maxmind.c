@@ -126,117 +126,80 @@ typedef enum blocks_cols {
 /** The number of header rows in the maxmind CSV files */
 #define HEADER_ROW_CNT 2
 
-/** Print usage information to stderr */
-static void usage(ipmeta_provider_t *provider)
-{
-  fprintf(
-    stderr,
-    "provider usage: %s (-l locations -b blocks)|(-d directory)\n"
-    "       -d            directory containing blocks and location files\n"
-    "       -b            blocks file (must be used with -l)\n"
-    "       -l            locations file (must be used with -b)\n",
-    provider->name);
-}
-
-/** Parse the arguments given to the provider
+/** Get options from a maxmind options struct and
+ * give them to the provider
  * @todo add option to choose datastructure
  */
-static int parse_args(ipmeta_provider_t *provider, int argc, char **argv)
+static int process_opts(ipmeta_provider_t *provider, const char *optstr, va_list argp)
 {
-  ipmeta_provider_maxmind_state_t *state = STATE(provider);
-  int opt;
-  char *directory = NULL;
-  char *ptr = NULL;
+  ipmeta_provider_maxmind_state_t *state = provider->state;
 
-  /* no args */
-  if (argc == 0) {
-    usage(provider);
+  char *dir = NULL;
+  char *tmp = NULL;
+  const char *ptr = NULL;
+
+  if (optstr == NULL || strcmp(optstr, "") == 0) {
     return -1;
   }
 
-  /* NB: remember to reset optind to 1 before using getopt! */
-  optind = 1;
+  for (ptr = optstr; *ptr != '\0'; ptr++) {
+    if (*ptr == 'b') {
+      state->blocks_file = strdup(va_arg(argp, char*));
+    } else if (*ptr == 'd') {
+      /* check if they were daft and specified explicit files too */
+      if (state->locations_file != NULL || state->blocks_file != NULL) {
+        fprintf(stderr, "WARNING: both directory and file names were specified.\n");
 
-  /* remember the argv strings DO NOT belong to us */
+        if (state->locations_file != NULL) {
+          free(state->locations_file);
+          state->locations_file = NULL;
+        }
 
-  while ((opt = getopt(argc, argv, "b:d:D:l:?")) >= 0) {
-    switch (opt) {
-    case 'b':
-      state->blocks_file = strdup(optarg);
-      break;
-    case 'D':
-      fprintf(
-        stderr,
-        "WARNING: -D option is no longer supported by individual providers.\n");
-      break;
-    case 'd':
-      /* no need to dup right now because we will do it later */
-      directory = optarg;
-      break;
+        if (state->blocks_file != NULL) {
+          free(state->blocks_file);
+          state->blocks_file = NULL;
+        }
+      }
 
-    case 'l':
-      state->locations_file = strdup(optarg);
-      break;
+      dir = va_arg(argp, char*);
+      if (dir[strlen(dir) - 1] == '/') {
+        dir[strlen(dir) - 1] = '\0';
+      }
 
-    case '?':
-    case ':':
-    default:
-      usage(provider);
-      return -1;
+      /* malloc storage for the dir+/+file string */
+      if ((state->locations_file = malloc(
+          strlen(dir) + 1 + strlen(LOCATIONS_FILE_NAME) + 1)) == NULL) {
+        ipmeta_log(__func__, "could not malloc location file string");
+        return -1;
+      }
+
+      if ((state->blocks_file = malloc(
+          strlen(dir) + 1 + strlen(BLOCKS_FILE_NAME) + 1)) == NULL) {
+        ipmeta_log(__func__, "could not malloc blocks file string");
+        return -1;
+      }
+
+      /** @todo make this check for both .gz and non-.gz files */
+
+      tmp = stpncpy(state->locations_file, dir, strlen(dir));
+      *tmp++ = '/';
+      tmp = stpncpy(tmp, LOCATIONS_FILE_NAME, strlen(LOCATIONS_FILE_NAME) + 1);
+
+      tmp = stpncpy(state->blocks_file, dir, strlen(dir));
+      *tmp++ = '/';
+      tmp = stpncpy(tmp, BLOCKS_FILE_NAME, strlen(BLOCKS_FILE_NAME) + 1);
+
+      /* we can stop here */
+      return 0;
+    } else if (*ptr == 'l') {
+      state->locations_file = strdup(va_arg(argp, char*));
     }
   }
 
-  if (directory != NULL) {
-    /* check if they were daft and specified explicit files too */
-    if (state->locations_file != NULL || state->blocks_file != NULL) {
-      fprintf(stderr, "WARNING: both directory and file name specified.\n");
-
-      /* free up the dup'd strings */
-      if (state->locations_file != NULL) {
-        free(state->locations_file);
-        state->locations_file = NULL;
-      }
-
-      if (state->blocks_file != NULL) {
-        free(state->blocks_file);
-        state->blocks_file = NULL;
-      }
-    }
-
-    /* remove the trailing slash if there is one */
-    if (directory[strlen(directory) - 1] == '/') {
-      directory[strlen(directory) - 1] = '\0';
-    }
-
-    /* malloc storage for the dir+/+file string */
-    if ((state->locations_file = malloc(
-           strlen(directory) + 1 + strlen(LOCATIONS_FILE_NAME) + 1)) == NULL) {
-      ipmeta_log(__func__, "could not malloc location file string");
-      return -1;
-    }
-
-    if ((state->blocks_file = malloc(strlen(directory) + 1 +
-                                     strlen(BLOCKS_FILE_NAME) + 1)) == NULL) {
-      ipmeta_log(__func__, "could not malloc blocks file string");
-      return -1;
-    }
-
-    /** @todo make this check for both .gz and non-.gz files */
-
-    ptr = stpncpy(state->locations_file, directory, strlen(directory));
-    *ptr++ = '/';
-    /* last copy needs a +1 to get the terminating nul. d'oh */
-    ptr = stpncpy(ptr, LOCATIONS_FILE_NAME, strlen(LOCATIONS_FILE_NAME) + 1);
-
-    ptr = stpncpy(state->blocks_file, directory, strlen(directory));
-    *ptr++ = '/';
-    ptr = stpncpy(ptr, BLOCKS_FILE_NAME, strlen(BLOCKS_FILE_NAME) + 1);
-  }
-
-  if (state->locations_file == NULL || state->blocks_file == NULL) {
-    fprintf(stderr, "ERROR: %s requires either '-d' or both '-b' and '-l'\n",
-            provider->name);
-    usage(provider);
+  if (state->blocks_file == NULL || state->locations_file == NULL) {
+    fprintf(stderr,
+        "ERROR: %s requires either a directory or locations and blocks file specified\n",
+        provider->name);
     return -1;
   }
 
@@ -1308,9 +1271,7 @@ ipmeta_provider_t *ipmeta_provider_maxmind_alloc()
   return &ipmeta_provider_maxmind;
 }
 
-int ipmeta_provider_maxmind_init(ipmeta_provider_t *provider, int argc,
-                                 char **argv)
-{
+int ipmeta_provider_maxmind_init(ipmeta_provider_t *provider, const char *optstr, ...) {
   ipmeta_provider_maxmind_state_t *state;
   io_t *file = NULL;
 
@@ -1331,10 +1292,15 @@ int ipmeta_provider_maxmind_init(ipmeta_provider_t *provider, int argc,
   }
   ipmeta_provider_register_state(provider, state);
 
-  /* parse the command line args */
-  if (parse_args(provider, argc, argv) != 0) {
+  va_list argp;
+  va_start(argp, optstr);
+
+  /* process maxmind options */
+  if (process_opts(provider, optstr, argp) != 0) {
     return -1;
   }
+
+  va_end(argp);
 
   assert(state->locations_file != NULL && state->blocks_file != NULL);
 
@@ -1392,7 +1358,6 @@ err:
   if (file != NULL) {
     wandio_destroy(file);
   }
-  usage(provider);
   return -1;
 }
 
